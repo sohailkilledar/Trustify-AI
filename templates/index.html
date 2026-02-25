@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trustify AI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    :root {
+      --bg-color: #0e1117;
+      --sidebar-bg: #050505;
+      --card-bg: #1d232d;
+      --accent: #38bdf8;
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Sidebar - History */
+    .sidebar {
+      width: 280px;
+      background-color: var(--sidebar-bg);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      transition: all 0.3s ease;
+    }
+
+    .sidebar-header {
+      padding-bottom: 20px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border-color);
+    }
+/* === Media preview size fix (NON-DESTRUCTIVE) === */
+.image-preview-container {
+  display: none;
+  margin-bottom: 15px;
+}
+
+.image-preview {
+  max-width: 100%;
+  max-height: 260px;      /* FIXED HEIGHT */
+  width: auto;
+  height: auto;
+  object-fit: contain;   /* KEY LINE */
+  border-radius: 12px;
+  background: #0b0f14;
+  display: block;
+}
+
+    .sidebar-header h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .history-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 15px;
+      text-transform: uppercase;
+    }
+
+    .history-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .history-item {
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: background 0.2s;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .history-item:hover { background-color: rgba(255, 255, 255, 0.05); }
+    .history-item i { color: var(--text-muted); font-size: 0.9rem; }
+
+    /* Main Content Area */
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+       overflow-y: auto;
+      justify-content: center;
+      padding: 40px;
+      position: relative;
+    }
+
+    .hero {
+      text-align: center;
+      max-width: 700px;
+      margin-bottom: 40px;
+    }
+
+    .hero h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .hero p {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+    }
+
+    /* Input Box (ChatGPT/Gemini Style) */
+    .input-container {
+      width: 100%;
+      max-width: 800px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 24px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .input-container:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .type-selector {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+
+    .type-selector select {
+      background: none;
+      border: none;
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      outline: none;
+    }
+
+    textarea {
+      width: 100%;
+      background: none;
+      border: none;
+      color: var(--text-main);
+      font-size: 1rem;
+      line-height: 1.6;
+      resize: none;
+      min-height: 100px;
+      outline: none;
+      margin-bottom: 15px;
+    }
+
+    .input-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 15px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .file-input-wrapper {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .file-input-wrapper:hover { color: var(--text-main); }
+
+    .submit-btn {
+      background-color: var(--accent);
+      color: #000;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 100px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: transform 0.2s, background-color 0.2s;
+    }
+
+    .submit-btn:hover {
+      background-color: #7dd3fc;
+      transform: translateY(-1px);
+    }
+
+    /* Loading UI */
+    .loading-overlay {
+      position: fixed; inset: 0; background: var(--bg-color);
+      display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 1000;
+    }
+
+    .loader {
+      width: 48px; height: 48px; border: 5px solid #FFF; border-bottom-color: var(--accent);
+      border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite;
+    }
+
+    @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <h2>Trustify AI</h2>
+  </div>
+  <p class="history-label">Verification History</p>
+  <div class="history-list" id="historyList">
+  </div>
+</aside>
+
+<main class="main-content">
+  <div class="hero">
+    <h1>What would you like to verify?</h1>
+    <p>Advanced forensic verification for the digital age.</p>
+  </div>
+
+  <div class="input-container">
+    <form id="verifyForm" method="post" enctype="multipart/form-data">
+      <div class="type-selector content-type-selector">
+        <select name="type" id="type" onchange="handleContentTypeChange()">
+          <option value="text">📰 Text Analysis</option>
+          <option value="image">🖼️ Image Forensic</option>
+          <option value="video">🎥 Video Deepfake</option>
+        </select>
+      </div>
+
+      <textarea name="text" id="text" placeholder="Paste the claim, news article, or social media post here..."></textarea>
+      
+      <!-- Image Preview Container -->
+      <div class="image-preview-container" id="imagePreviewContainer">
+        <div class="image-preview-label">Image Preview:</div>
+        <img id="imagePreview" class="image-preview" style="display: none;">
+      </div>
+
+      <div class="input-footer">
+        <label class="file-input-wrapper">
+          <i class="fas fa-paperclip"></i>
+          <span>Attach Media</span>
+          <input type="file" name="file" id="file" style="display: none;">
+        </label>
+
+        <button type="submit" class="submit-btn">
+          Verify <i class="fas fa-arrow-right"></i>
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <p style="margin-top: 30px; font-size: 0.8rem; color: var(--text-muted);">
+    Trustify AI can provide misleading results. Cross-reference with official sources.
+  </p>
+</main>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <span class="loader"></span>
+  <p id="loadingText" style="margin-top: 20px; font-weight: 500; color: var(--text-muted);">Initializing Quad-Scan...</p>
+</div>
+
+<script>
+  function renderHistory() {
+    const list = document.getElementById('historyList');
+    const history = JSON.parse(localStorage.getItem('trust_history') || '[]');
+    if (history.length === 0) {
+      list.innerHTML = `<div style="color:var(--text-muted); font-size:0.8rem; padding:10px;">No recent scans</div>`;
+      return;
+    }
+    list.innerHTML = history.map(item => `
+      <div class="history-item">
+        <i class="far fa-message"></i>
+        <span>${item.text}</span>
+      </div>
+    `).join('');
+  }
+
+  function handleContentTypeChange() {
+    const type = document.getElementById('type').value;
+    const textArea = document.getElementById('text');
+    const imagePreview = document.getElementById('imagePreviewContainer');
+    const fileInput = document.getElementById('file');
+    
+    // Reset states
+    textArea.value = '';
+    imagePreview.style.display = 'none';
+    fileInput.value = '';
+    
+    if (type === 'image') {
+      // Disable textarea for image mode
+      textArea.disabled = true;
+      textArea.placeholder = 'Image mode selected - please upload an image file';
+      textArea.style.backgroundColor = '#f5f5f5';
+      textArea.style.color = '#999';
+      textArea.style.borderColor = '#ddd';
+    } else {
+      // Enable textarea for text/video modes
+      textArea.disabled = false;
+      textArea.placeholder = 'Paste the claim, news article, or social media post here...';
+      textArea.style.backgroundColor = 'transparent';
+      textArea.style.color = 'var(--text-main)';
+      textArea.style.borderColor = 'var(--border-color)';
+    }
+  }
+
+  function handleImageUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const previewContainer = document.getElementById('imagePreviewContainer');
+  let preview = document.getElementById('imagePreview');
+
+  // If video, swap element dynamically (NO UI CHANGE)
+  if (file.type.startsWith('video/')) {
+    preview.outerHTML = `
+      <video id="imagePreview" class="image-preview" controls></video>
+    `;
+    preview = document.getElementById('imagePreview');
+  }
+
+  const url = URL.createObjectURL(file); // safer than base64
+  preview.src = url;
+  preview.style.display = 'block';
+  previewContainer.style.display = 'block';
+}
+
+
+  document.getElementById('verifyForm').addEventListener('submit', function(e) {
+    const text = document.getElementById('text').value;
+    const type = document.getElementById('type').value;
+
+    if (text.trim() !== "" || type === 'image') {
+      const history = JSON.parse(localStorage.getItem('trust_history') || '[]');
+      const historyText = type === 'image' ? 'Image Analysis' : text.substring(0, 30) + '...';
+      history.unshift({ text: historyText });
+      localStorage.setItem('trust_history', JSON.stringify(history.slice(0, 10)));
+    }
+
+    if (type === 'text') {
+      e.preventDefault();
+      const overlay = document.getElementById('loadingOverlay');
+      const status = document.getElementById('loadingText');
+      overlay.style.display = 'flex';
+
+      const steps = ["Checking News Sources", "Analyzing Claims", "Validating Logic", "Generating Verdict"];
+      steps.forEach((step, i) => {
+        setTimeout(() => {
+          status.innerText = step + "...";
+          if (i === steps.length - 1) {
+            setTimeout(() => document.getElementById('verifyForm').submit(), 800);
+          }
+        }, i * 1000);
+      });
+    }
+  });
+
+  // File input change handler
+  document.getElementById('file').addEventListener('change', handleImageUpload);
+
+  
+  renderHistory();
+</script>
+</body>
+</html>

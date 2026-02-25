@@ -1,0 +1,16 @@
+flask
+torch
+torchvision
+transformers
+sentence-transformers
+numpy
+opencv-python
+pillow
+imagehash
+exifread
+scikit-learn
+scipy
+requests
+google-generativeai
+python-dotenv
+facenet-pytorch
