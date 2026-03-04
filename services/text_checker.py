@@ -1,160 +1,68 @@
-import requests
+import sys
 import os
-from dotenv import load_dotenv
-from services.gemini_checker import GeminiChecker
+import torch
+import numpy as np
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from claim_checker import check_claim
 
-# Load environment variables
-load_dotenv()
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-API_KEY = "d64d65bdda8f4a78b2573128c24fe42a"
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# VERIFIED NLI MODEL
+NLI_MODEL = "cross-encoder/nli-MiniLM2-L6-H768"
+nli_tokenizer = AutoTokenizer.from_pretrained(NLI_MODEL)
+nli_model = AutoModelForSequenceClassification.from_pretrained(NLI_MODEL).to(DEVICE)
 
-def fetch_news_simple(query):
-    """Simple news fetching without ML processing"""
-    url = "https://newsapi.org/v2/everything"
-    params = {
-        "q": query,
-        "language": "en",
-        "pageSize": 5,
-        "apiKey": API_KEY
-    }
-    try:
-        r = requests.get(url, params=params)
-        articles = r.json().get("articles", [])
-        
-        # Simple keyword-based analysis
-        support_count = 0
-        refute_count = 0
-        sources = []
-        
-        for article in articles:
-            content = (article["title"] or "") + " " + (article["description"] or "")
-            source_name = article["source"]["name"]
-            sources.append(source_name)
-            
-            content_lower = content.lower()
-            if any(word in content_lower for word in ["confirms", "reports", "says", "true", "accurate"]):
-                support_count += 1
-            elif any(word in content_lower for word in ["denies", "debunks", "false", "fake"]):
-                refute_count += 1
-        
-        if support_count > refute_count and support_count > 0:
-            verdict = "Likely True"
-            confidence = min(60 + support_count * 10, 85)
-        elif refute_count > support_count and refute_count > 0:
-            verdict = "Likely False"
-            confidence = min(60 + refute_count * 10, 85)
-        else:
-            verdict = "Unverified"
-            confidence = 40
-            
-        return {
-            "type": "News Source Analysis",
-            "verdict": verdict,
-            "confidence": confidence,
-            "details": f"Based on {len(articles)} news articles",
-            "sources": list(set(sources))
-        }
-        
-    except Exception as e:
-        return {
-            "type": "News Source Analysis",
-            "verdict": "Unverified",
-            "confidence": 20,
-            "details": f"Error fetching news: {str(e)}",
-            "sources": []
-        }
+def check_text(text):
+    # 1. Fetch Evidence
+    retrieval = check_claim(text)
+    evidence = retrieval["evidence_headlines"]
+    sim_score = retrieval["confidence"] / 100 
 
-def check_text(user_text):
-    """Dual verification using News API + Gemini API"""
-    
-    # 1. News Analysis (always works)
-    news_result = fetch_news_simple(user_text)
-    
-    # 2. Gemini AI Analysis (with error handling)
-    gemini_result = None
-    try:
-        gemini_checker = GeminiChecker(GEMINI_API_KEY)
-        gemini_result = gemini_checker.analyze_claim_reasoning(user_text, news_result.get("sources", []))
-    except Exception as e:
-        # Gemini API failed (quota exceeded, network error, etc.)
-        gemini_result = {
-            "verdict": "Unverified",
-            "confidence": 30,
-            "details": f"Gemini API unavailable: {str(e)}",
-            "error": True
-        }
-    
-    # Combine results
-    return combine_dual_verification(news_result, gemini_result)
+    contra_score, entail_score = 0, 0
+    if evidence:
+        # Check logic against the top news headline
+        inputs = nli_tokenizer(evidence[0], text, return_tensors="pt", truncation=True).to(DEVICE)
+        with torch.no_grad():
+            logits = nli_model(**inputs).logits
+            probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
+            # Mapping for this specific model: [0: contradiction, 1: entailment, 2: neutral]
+            contra_score, entail_score = probs[0], probs[1]
 
-def combine_dual_verification(news_result, gemini_result):
-    """Combine news and Gemini results"""
+    # 2. Fast Keyword Engines (No heavy model downloads)
+    text_lower = text.lower()
+    toxic_words = ["hate", "kill", "terror", "idiot", "violence"]
+    tox_score = sum(1 for w in toxic_words if w in text_lower) / 10
+    prop_count = sum(1 for w in ["conspiracy", "agenda", "fake", "betrayal"] if w in text_lower)
+
+    # 3. Final Decision Logic (Targeting 95%+ Accuracy)
+    news_type = "Unverified"
     
-    # Convert verdicts to numeric scores
-    verdict_scores = {
-        "Likely True": 0.8,
-        "True": 0.8,
-        "Likely False": 0.2,
-        "False": 0.2,
-        "Mixed/Unverified": 0.5,
-        "Unverified": 0.4
-    }
-    
-    news_score = verdict_scores.get(news_result["verdict"], 0.4)
-    
-    # Handle Gemini API failure
-    if gemini_result.get("error"):
-        # If Gemini failed, rely more heavily on news but be conservative
-        final_verdict = news_result["verdict"]
-        combined_confidence = max(40, news_result["confidence"] - 10)  # Reduce confidence slightly
-        combined_score = news_score
-        
-        return {
-            "type": "Dual Verification System (News + Gemini AI)",
-            "verdict": final_verdict,
-            "confidence": combined_confidence,
-            "details": f"News analysis only (Gemini API unavailable)",
-            "news_verification": news_result,
-            "gemini_reasoning": gemini_result,
-            "combined_score": round(combined_score, 2),
-            "api_status": "news_only"
-        }
-    
-    # Normal dual verification when both APIs work
-    gemini_score = verdict_scores.get(gemini_result["verdict"], 0.4)
-    
-    # Weight the results (Gemini gets more weight for reasoning)
-    news_confidence = news_result["confidence"] / 100
-    gemini_confidence = gemini_result["confidence"] / 100
-    
-    combined_score = (news_score * 0.4 * news_confidence) + (gemini_score * 0.6 * gemini_confidence)
-    
-    # Determine final verdict
-    if combined_score >= 0.65:
-        final_verdict = "Likely True"
-    elif combined_score <= 0.35:
-        final_verdict = "Likely False"
+    # Logical Contradiction Check (If truth is 'Al-Qaeda' and claim is 'India')
+    if contra_score > 0.45:
+        news_type = "False / Fake News"
+        final_conf = contra_score
+    elif entail_score > 0.6 and sim_score > 0.6:
+        news_type = "Real / Verified News"
+        final_conf = (entail_score + sim_score) / 2
+    elif sim_score < 0.2:
+        news_type = "False / Fake News"
+        final_conf = 0.85
+    elif 0.3 <= sim_score <= 0.7:
+        news_type = "Partially Supported"
+        final_conf = sim_score
     else:
-        final_verdict = "Mixed/Unverified"
-    
-    # Calculate combined confidence with boost for agreement
-    base_confidence = int((news_result["confidence"] + gemini_result["confidence"]) / 2)
-    
-    # Boost confidence if both agree
-    if (news_result["verdict"] == gemini_result["verdict"] and 
-        "Unverified" not in news_result["verdict"]):
-        combined_confidence = min(90, base_confidence + 15)
-    else:
-        combined_confidence = base_confidence
-    
+        news_type = "Unverified / Ambiguous"
+        final_conf = 0.5
+
     return {
-        "type": "Dual Verification System (News + Gemini AI)",
-        "verdict": final_verdict,
-        "confidence": combined_confidence,
-        "details": f"Combined analysis from news sources and AI reasoning",
-        "news_verification": news_result,
-        "gemini_reasoning": gemini_result,
-        "combined_score": round(combined_score, 2),
-        "api_status": "dual_working"
+        "news_type": news_type,
+        "confidence_score": f"{round(final_conf * 100, 2)}%",
+        "evidence_headlines": evidence,
+        "local_scores": {
+            "fake_probability": round(float(contra_score if news_type == "False / Fake News" else (1-sim_score)), 4),
+            "toxicity": min(tox_score, 1.0),
+            "nli_consensus": "Contradiction" if contra_score > 0.45 else "Neutral",
+            "propaganda_keywords": prop_count
+        },
+        "ai_reasoning": "Detected logical mismatch with verified news history." if news_type == "False / Fake News" else "Analysis complete."
     }
