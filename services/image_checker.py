@@ -1,11 +1,13 @@
 import cv2
 import torch
 import numpy as np
+import os
 from PIL import Image, ImageChops
 from transformers import pipeline, AutoImageProcessor, AutoModelForImageClassification
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Model Setup
 artifact_model_name = "umm-maybe/AI-image-detector"
 artifact_processor = AutoImageProcessor.from_pretrained(artifact_model_name)
 artifact_model = AutoModelForImageClassification.from_pretrained(artifact_model_name).to(device).eval()
@@ -23,26 +25,39 @@ clip_labels = [
 ]
 
 def get_ela(image_path, quality=90):
+    """Calculates Error Level Analysis value."""
+    temp_resaved = f"temp_resaved_{os.getpid()}.jpg"
     original = Image.open(image_path).convert('RGB')
-    resaved_path = 'temp_resaved.jpg'
-    original.save(resaved_path, 'JPEG', quality=quality)
-    resaved = Image.open(resaved_path)
+    original.save(temp_resaved, 'JPEG', quality=quality)
+    
+    resaved = Image.open(temp_resaved)
     ela_im = ImageChops.difference(original, resaved)
+    
     extrema = ela_im.getextrema()
     max_diff = max([ex[1] for ex in extrema])
     if max_diff == 0: max_diff = 1
     scale = 255.0 / max_diff
-    ela_im = ImageChops.constant(ela_im, scale)
-    return np.array(ela_im).mean()
+    
+    ela_val = np.array(ela_im).mean()
+    
+    # Cleanup temp file
+    if os.path.exists(temp_resaved):
+        os.remove(temp_resaved)
+        
+    return ela_val
 
 def analyze_frequency_variance(image_path):
+    """Detects unusual high-frequency noise common in GANs."""
     img = cv2.imread(image_path, 0)
+    if img is None: return 0
     f = np.fft.fft2(img)
     fshift = np.fft.fftshift(f)
     magnitude_spectrum = 20 * np.log(np.abs(fshift) + 1)
     return np.var(magnitude_spectrum)
 
 def check_image_hybrid(image_path):
+    """Combines Semantic, Artifact, and Forensic analysis."""
+    # 1. Semantic Check (CLIP)
     try:
         clip_result = clip_pipeline(image_path, candidate_labels=clip_labels)
         clip_ai_score = sum([x['score'] for x in clip_result if any(kw in x['label'].lower() for kw in ['ai', 'synthetic', 'digital', 'generated'])])
@@ -51,15 +66,18 @@ def check_image_hybrid(image_path):
     except:
         clip_conf = 0.5
 
+    # 2. Texture Artifact Check (ViT)
     try:
         img = Image.open(image_path).convert('RGB')
         inputs = artifact_processor(images=img, return_tensors="pt").to(device)
         with torch.no_grad():
             outputs = artifact_model(**inputs)
+            # Assuming index 1 is 'AI' for this specific model
             artifact_ai_prob = torch.softmax(outputs.logits, dim=1)[0][1].item()
     except:
         artifact_ai_prob = 0.5
 
+    # 3. Forensic Trace (ELA + FFT)
     try:
         ela_val = get_ela(image_path)
         freq_var = analyze_frequency_variance(image_path)
@@ -67,6 +85,7 @@ def check_image_hybrid(image_path):
     except:
         forensic_signal = 0.5
 
+    # Weighted Scoring
     combined_score = (clip_conf * 0.3) + (artifact_ai_prob * 0.5) + (forensic_signal * 0.2)
     combined_score = min(0.99, max(0.01, combined_score))
 
@@ -86,7 +105,3 @@ def check_image_hybrid(image_path):
             "forensic_trace": round(forensic_signal, 4)
         }
     }
-
-if __name__ == "__main__":
-    file_path = "target_image.jpg"
-    print(check_image_hybrid(file_path))
