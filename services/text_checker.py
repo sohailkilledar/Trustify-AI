@@ -34,10 +34,10 @@ def check_text(text):
     tox_score = sum(1 for w in toxic_words if w in text_lower) / 10
     prop_count = sum(1 for w in ["conspiracy", "agenda", "fake", "betrayal"] if w in text_lower)
 
-    # 3. Final Decision Logic (Targeting 95%+ Accuracy)
+    
     news_type = "Unverified"
     
-    # Logical Contradiction Check (If truth is 'Al-Qaeda' and claim is 'India')
+  
     if contra_score > 0.45:
         news_type = "False / Fake News"
         final_conf = contra_score
